@@ -24,7 +24,6 @@ neg_examples=[]; % negative examples (calls/cage noise, etc.)
 gui_enable=1; % requires jmarkow/zftftb toolbox
 fft_size = 128; % fft size in samples
 fft_time_shift = 0.01; % timestep in seconds
-noverlap = fft_size - (floor(samplerate * fft_time_shift));
 ntrain = 1000;
 scaling= 'db'; % ('lin','log', or 'db', scaling for spectrograms)
 
@@ -64,6 +63,9 @@ for i=1:2:nparams
       scaling=varargin{i+1};
 	end
 end
+
+% calculate the number of overlaps
+noverlap = fft_size - (floor(samplerate * fft_time_shift));
 
 if ~isempty(padding) & length(padding)==2
   pad_smps=round(padding*FS);
