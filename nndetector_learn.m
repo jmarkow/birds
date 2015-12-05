@@ -22,17 +22,18 @@ false_positive_cost=1; % weight of false positives
 time_window = 0.06; % TUNE
 neg_examples=[]; % negative examples (calls/cage noise, etc.)
 gui_enable=1; % requires jmarkow/zftftb toolbox
-win_size = 128; % fft size in samples
-fft_time_shift = 120; % timestep in samples
-fft_size = 128;
+win_size = 256; % fft size in samples
+fft_time_shift = 256; % timestep in samples
+fft_size = 256;
 ntrain = 1000;
 scaling= 'db'; % ('lin','log', or 'db', scaling for spectrograms)
-nhidden_units=3;
-nhidden_layers=2;
+nhidden_units=5;
+nhidden_layers=1;
 nparams=length(varargin);
 shotgun_sigma = 0.003; % TUNE
 shotgun_max_sec = 0.02;
 auto_encoder=0;
+swift_convert=0;
 
 if mod(nparams,2)>0
 	error('nndetector:argChk','Parameters must be specified as parameter/value pairs!');
@@ -68,6 +69,8 @@ for i=1:2:nparams
       scaling=varargin{i+1};
     case 'auto_encoder'
       auto_encoder=varargin{i+1};
+    case 'swift_convert'
+      swift_convert=varargin{i+1};
 	end
 end
 
@@ -231,7 +234,7 @@ for i = 1:ntsteps_of_interest
   foo = reshape(spectrograms(1:nmatchingsongs, :, range), nmatchingsongs, []) * reshape(mean(spectrograms(:, :, range), 1), 1, [])';
   [val canonical_songs(i)] = max(foo);
   [target_offsets(i,:) sample_offsets(i,:)] = get_target_offsets_jeff(MIC_DATA(:, 1:nmatchingsongs),...
-  tstep_of_interest(i), samplerate, timestep, canonical_songs(i));
+    tstep_of_interest(i), samplerate, timestep, canonical_songs(i));
 end
 
 %% Create the training set
@@ -292,8 +295,11 @@ if ~auto_encoder
   net.trainFcn='trainscg';
   net.performFcn='mse';
   net.trainParam.max_fail = 5;
-  nnsetX=zscore(nnsetX);
-  net.inputs{1}.processFcns={'mapstd'};
+
+  % leave standard until we Swift code is updated
+
+  %nnsetX=zscore(nnsetX);
+  net.inputs{1}.processFcns={'mapminmax'};
 
 else
 
@@ -375,6 +381,16 @@ nndetector_vis_test(ntsteps_of_interest,testout,spectrograms,times,time_window,.
   time_window_steps,trigger_thresholds,ntrainsongs,ntestsongs,timestep,randomsongs,nmatchingsongs);
 colormap(jet);
 
+
+net.userdata.win_size=win_size;
+net.userdata.fft_size=fft_size;
+net.userdata.fft_time_shift=fft_time_shift;
+net.userdata.amp_scaling=scaling;
+net.userdata.freq_range=freq_range;
+net.userdata.freq_range_ds=freq_range_ds;
+net.userdata.threshold=trigger_thresholds;
+net.userdata.time_steps=time_window_steps;
+
 % Draw the hidden units' weights.  Let the user make these square or not
 % because lazy...
 
@@ -389,10 +405,11 @@ mkdir(bird);
 save(fullfile(bird,[ filename '.mat' ]), ...
   'net', 'train_record','samplerate', 'win_size', 'fft_time_shift', 'freq_range_ds', ...
   'time_window_steps', 'trigger_thresholds', 'shotgun_sigma', 'fft_size', ...
-  'ntrain','scaling');
+  'ntrain','scaling','freq_range','nnsetX','nnsetY');
 
-% uncomment when convert to text is working again
-convert_to_text(fullfile(bird,[ filename '.txt' ]),fullfile(bird,[ filename '.mat' ]));
+if swift_convert
+  convert_to_text(fullfile(bird,[ filename '.txt' ]),fullfile(bird,[ filename '.mat' ]));
+end
 
 fignames=fieldnames(figs);
 
