@@ -34,6 +34,7 @@ shotgun_sigma = 0.003; % TUNE
 shotgun_max_sec = 0.02;
 auto_encoder=0;
 swift_convert=0;
+export_wav=0;
 
 if mod(nparams,2)>0
 	error('nndetector:argChk','Parameters must be specified as parameter/value pairs!');
@@ -71,6 +72,8 @@ for i=1:2:nparams
       auto_encoder=varargin{i+1};
     case 'swift_convert'
       swift_convert=varargin{i+1};
+    case 'export_wav'
+      export_wav=varargin{i+1};
 	end
 end
 
@@ -132,10 +135,6 @@ end
 MIC_DATA=[MIC_DATA neg_examples];
 nsongs = size(MIC_DATA, 2);
 
-% Compute the spectrogram using original parameters (probably far from
-% optimal but I have not played with them).  Compute one to get size, then
-% preallocate memory and compute the rest in parallel.
-
 % TODO: parameters in struct and pass to various functions (make amenable to running everything from CLI)
 
 fprintf('FFT time shift = %g s\n', fft_time_shift/samplerate);
@@ -172,24 +171,18 @@ ntestsongs = nsongs - ntrainsongs;
 randomsongs = randperm(nsongs);
 
 spectrograms = zeros([nsongs nfreqs ntimes]);
-spectrograms(1, :, :) = speck;
 disp('Computing spectrograms...');
-for i = 2:nsongs
+for i = 1:nsongs
   spectrograms(i, :, :) = spectrogram(MIC_DATA(:,i), window, noverlap, fft_size, samplerate);
 end
 
 spectrograms = single(spectrograms);
-
-% Create a pretty graphic for display (which happens later)
 
 spectrograms = abs(spectrograms);
 spectrogram_avg_img = 20*log10(squeeze((mean(spectrograms(1:nmatchingsongs,:,:)))));
 
 % Number of samples: (nsongs*(ntimes-time_window))
 % Size of each sample: (ntimes-time_window)*length(freq_range)
-
-%% Cut out a region of the spectrum (in space and time) to save on compute
-%% time:
 
 %%%%%%%%%%%%
 
@@ -233,9 +226,23 @@ for i = 1:ntsteps_of_interest
   range = range(find(range>0&range<=ntimes));
   foo = reshape(spectrograms(1:nmatchingsongs, :, range), nmatchingsongs, []) * reshape(mean(spectrograms(:, :, range), 1), 1, [])';
   [val canonical_songs(i)] = max(foo);
-  [target_offsets(i,:) sample_offsets(i,:)] = get_target_offsets_jeff(MIC_DATA(:, 1:nmatchingsongs),...
+  [target_offsets(i,:) sample_offsets(i,:)] = nndetector_target_offsets(MIC_DATA(:, 1:nmatchingsongs),...
     tstep_of_interest(i), samplerate, timestep, canonical_songs(i));
 end
+
+% with the target offsets, reshape MIC_DATA to write out to large wav file with hit points marked
+% in right channel, sound in left channel
+
+
+if export_wav
+  sample_of_interest=round(times_of_interest*samplerate);
+  %sample_targets=sample_of_interest+sample_offsets;
+  sample_targets=repmat(sample_of_interest,[1 nmatchingsongs]);
+  nndetector_export_wav(MIC_DATA,samplerate,sample_targets,round(.001*samplerate),'wav_file.wav');
+  % call to wav reshape, write out data for testing network
+end
+
+%%%
 
 %% Create the training set
 
@@ -271,8 +278,6 @@ elseif strcmp(lower(scaling),'db')
 else
   fprintf('Linear scaling\n');
 end
-
-%nnsetX=mapminmax(nnsetX')'; % map each example to [-1,1] across *columns*
 
 % original order: spectrograms, spectrograms_ds, song_montage
 %   indices into original order: trainsongs, testsongs
@@ -363,7 +368,7 @@ disp('Computing optimal output thresholds...');
 songs_with_hits = [ones(1, nmatchingsongs) zeros(1, nsongs - nmatchingsongs)]';
 songs_with_hits = songs_with_hits(randomsongs);
 
-[trigger_thresholds figs.roc] = optimise_network_output_unit_trigger_thresholds(...
+[trigger_thresholds figs.roc] = nndetector_trigger_thresholds(...
   testout, ...
   nwindows_per_song, ...
   false_positive_cost, ...
@@ -374,14 +379,6 @@ songs_with_hits = songs_with_hits(randomsongs);
   time_window_steps, ...
   songs_with_hits);
 
-figs.performance=figure();
-nndetector_vis_train(times,freqs,spectrogram_avg_img,...
-  times_of_interest,tstep_of_interest,freq_range,time_window);
-nndetector_vis_test(ntsteps_of_interest,testout,spectrograms,times,time_window,...
-  time_window_steps,trigger_thresholds,ntrainsongs,ntestsongs,timestep,randomsongs,nmatchingsongs);
-colormap(jet);
-
-
 net.userdata.win_size=win_size;
 net.userdata.fft_size=fft_size;
 net.userdata.fft_time_shift=fft_time_shift;
@@ -390,6 +387,17 @@ net.userdata.freq_range=freq_range;
 net.userdata.freq_range_ds=freq_range_ds;
 net.userdata.threshold=trigger_thresholds;
 net.userdata.time_steps=time_window_steps;
+net.userdata.time_window=time_window;
+net.userdata.samplerate=samplerate;
+
+% TODO: refactor visualization to pick off parameters from userdata field
+
+figs.performance=figure();
+nndetector_vis_train(times,freqs,spectrogram_avg_img,...
+  times_of_interest,tstep_of_interest,freq_range,time_window);
+nndetector_vis_test(ntsteps_of_interest,testout,spectrograms,times,time_window,...
+  time_window_steps,trigger_thresholds,ntrainsongs,ntestsongs,timestep,randomsongs,nmatchingsongs);
+colormap(jet);
 
 % Draw the hidden units' weights.  Let the user make these square or not
 % because lazy...
@@ -398,7 +406,7 @@ figs.hiddenlayer=figure();
 nndetector_vis_hiddenlayer(net,fft_time_shift/samplerate,time_window_steps,freq_range,freq_range_ds);
 
 filename = sprintf('detector_%s%s_%dHz_%dhid_%dtrain', ...
-bird, sprintf('_%g', times_of_interest), floor(1/fft_time_shift/samplerate), net.layers{1}.dimensions, ntrain);
+  bird, sprintf('_%g', times_of_interest), floor(1/fft_time_shift/samplerate), net.layers{1}.dimensions, ntrain);
 fprintf('Saving as ''%s''...\n', filename);
 
 mkdir(bird);
