@@ -30,7 +30,7 @@ scaling= 'db'; % ('lin','log', or 'db', scaling for spectrograms)
 nhidden_units=5;
 nhidden_layers=1;
 nparams=length(varargin);
-shotgun_sigma = 0.003; % TUNE
+shotgun_sigma = 0.006; % TUNE
 shotgun_max_sec = 0.02;
 auto_encoder=0;
 swift_convert=0;
@@ -296,6 +296,7 @@ nnset_test = ntrainsongs * nwindows_per_song + 1 : size(nnsetX, 2);
 
 if ~auto_encoder
 
+  nnsetX=zscore(nnsetX);
   net = feedforwardnet(repmat(ceil([nhidden_units * ntsteps_of_interest]),[1 nhidden_layers])); % TUNE
   net.trainFcn='trainscg';
   net.performFcn='mse';
@@ -304,14 +305,13 @@ if ~auto_encoder
   % leave standard until we Swift code is updated
 
   %nnsetX=zscore(nnsetX);
-  net.inputs{1}.processFcns={'mapminmax'};
+  net.inputs{1}.processFcns={'mapstd'};
 
 else
 
   % try out a baby deepnet using the 2015 toolbox
 
   nnsetX=zscore(nnsetX);
-  nnsetX=zscore(nnsetX')';
 
   % consider training auto-encoder outside of function
   % recomputing this seems to be a waste...
@@ -348,13 +348,26 @@ else
   % check cross entropy and mse
 
   softnet=trainSoftmaxLayer(features1,nnsetY,'LossFunction','crossentropy');
+
   net=stack(autoenc1,softnet);
   net.divideFcn='dividerand';
+  net.inputs{1}.processFcns={'mapstd'};
 
 end
 
 tic
 [net, train_record] = train(net, nnsetX(:, nnset_train), nnsetY(:, nnset_train), 'UseParallel', 'no');
+
+net.userdata.win_size=win_size;
+net.userdata.fft_size=fft_size;
+net.userdata.fft_time_shift=fft_time_shift;
+net.userdata.amp_scaling=scaling;
+net.userdata.freq_range=freq_range;
+net.userdata.freq_range_ds=freq_range_ds;
+net.userdata.time_steps=time_window_steps;
+net.userdata.time_window=time_window;
+net.userdata.samplerate=samplerate;
+net.userdata.match_slop=match_slop;
 
 % Oh yeah, the line above was the hard part.
 disp(sprintf('   ...training took %g minutes.', toc/60));
@@ -379,16 +392,8 @@ songs_with_hits = songs_with_hits(randomsongs);
   time_window_steps, ...
   songs_with_hits);
 
-net.userdata.win_size=win_size;
-net.userdata.fft_size=fft_size;
-net.userdata.fft_time_shift=fft_time_shift;
-net.userdata.amp_scaling=scaling;
-net.userdata.freq_range=freq_range;
-net.userdata.freq_range_ds=freq_range_ds;
 net.userdata.threshold=trigger_thresholds;
-net.userdata.time_steps=time_window_steps;
-net.userdata.time_window=time_window;
-net.userdata.samplerate=samplerate;
+
 
 % TODO: refactor visualization to pick off parameters from userdata field
 
