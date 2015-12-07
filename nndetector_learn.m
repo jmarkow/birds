@@ -19,21 +19,24 @@ freq_range=[1e3 7e3];
 subsample=[]; % use only subsample trials (sampled across the full dataset)
 match_slop= 0.02; % acceptable match on either side of selection point (secs)
 false_positive_cost=1; % weight of false positives
-time_window = 0.06; % TUNE
+time_window = []; % TUNE
 neg_examples=[]; % negative examples (calls/cage noise, etc.)
 gui_enable=1; % requires jmarkow/zftftb toolbox
 win_size = 256; % fft size in samples
 fft_time_shift = 256; % timestep in samples
 fft_size = 256;
 ntrain = 1000;
-scaling= 'db'; % ('lin','log', or 'db', scaling for spectrograms)
+amp_scaling= 'db'; % ('lin','log', or 'db', scaling for spectrograms)
 nhidden_units=5;
 nhidden_layers=1;
 nparams=length(varargin);
 shotgun_sigma = 0.003; % TUNE
 shotgun_max_sec = 0.02;
-auto_encoder=0;
+auto_encoder=1;
 swift_convert=0;
+user_data=[];
+
+param_names=who('-regexp','^[a-z]');
 
 if mod(nparams,2)>0
 	error('nndetector:argChk','Parameters must be specified as parameter/value pairs!');
@@ -65,13 +68,33 @@ for i=1:2:nparams
       win_size=varargin{i+1};
     case 'fft_time_shift'
       fft_time_shift=varargin{i+1};
-    case 'scaling'
-      scaling=varargin{i+1};
+    case 'amp_scaling'
+      amp_scaling=varargin{i+1};
     case 'auto_encoder'
       auto_encoder=varargin{i+1};
     case 'swift_convert'
       swift_convert=varargin{i+1};
+    case 'user_data'
+      user_data=varargin{i+1};
 	end
+end
+
+if isstruct(user_data)
+  parameters=fieldnames(user_data);
+
+  % if we have an auto_encoder, map all of the parameters
+
+  for i=1:length(parameters)
+
+    if any(strcmp(param_names,parameters{i}))
+
+      % map variable to the current workspace
+
+      disp(['Setting parameter ' parameters{i} ' to:  ' num2str(user_data.(parameters{i}))]);
+      feval(@()assignin('caller',parameters{i},user_data.(parameters{i})));
+
+    end
+  end
 end
 
 noverlap = win_size - (fft_time_shift);
@@ -95,13 +118,19 @@ if ~isempty(subsample)
 end
 
 if gui_enable
+
   fprintf(1,'Gui selection\n');
   [~,~,tmp_t,~,tmp_f]=zftftb_spectro_navigate(MIC_DATA(:,1),FS);
   times_of_interest=tmp_t(end);
-  time_window=tmp_t(end)-tmp_t(1);
+
+  if isempty(time_window)
+    time_window=tmp_t(end)-tmp_t(1);
+  end
+
   %freq_range=round([tmp_f(1) tmp_f(end)]/1e3)*1e3; % round off by 1000 Hz
   fprintf(1,'Times of interest:\t%g\nTime window:\t%g\nFreq range:\t%g %g\n',...
     times_of_interest,time_window,freq_range(1),freq_range(2));
+
 end
 
 rng('shuffle');
@@ -262,10 +291,10 @@ nnsetY = single(nnsetY);
 
 % scaling
 
-if strcmp(lower(scaling),'log')
+if strcmp(lower(amp_scaling),'log')
   fprintf('Log scaling\n');
   nnsetX=log(nnsetX);
-elseif strcmp(lower(scaling),'db')
+elseif strcmp(lower(amp_scaling),'db')
   fprintf('dB scaling\n');
   nnsetX=20*log10(nnsetX);
 else
@@ -289,7 +318,7 @@ nnset_test = ntrainsongs * nwindows_per_song + 1 : size(nnsetX, 2);
 % layer.  [8] means one hidden layer with 8 units.  [] means a simple
 % perceptron
 
-if ~auto_encoder
+if ~isa(auto_encoder,'Autoencoder') & ~auto_encoder
 
   net = feedforwardnet(repmat(ceil([nhidden_units * ntsteps_of_interest]),[1 nhidden_layers])); % TUNE
   net.trainFcn='trainscg';
@@ -300,6 +329,7 @@ if ~auto_encoder
 
   %nnsetX=zscore(nnsetX);
   net.inputs{1}.processFcns={'mapminmax'};
+  autoenc=[];
 
 else
 
@@ -313,7 +343,8 @@ else
 
   % regularization and sparsity terms need some tuning
 
-  autoenc1 = trainAutoencoder(nnsetX,50,...
+  if ~isa(auto_encoder,'Autoencoder')
+    autoenc = trainAutoencoder(nnsetX,50,...
         'EncoderTransferFunction','logsig',...
         'DecoderTransferFunction','purelin',...
         'L2WeightRegularization',0.1,...
@@ -321,8 +352,12 @@ else
         'SparsityProportion',0.05,...
         'ScaleData',false,...
         'MaxEpochs',500);
+  else
+    autoenc=auto_encoder;
+    clearvars auto_encoder;
+  end
 
-  features1=encode(autoenc1,nnsetX);
+  features1=encode(autoenc,nnsetX);
 
   % TODO: store auto-encoder and add ability to load one in
   % (no point in reproducing this for the same dataset)
@@ -343,7 +378,7 @@ else
   % check cross entropy and mse
 
   softnet=trainSoftmaxLayer(features1,nnsetY,'LossFunction','crossentropy');
-  net=stack(autoenc1,softnet);
+  net=stack(autoenc,softnet);
   net.divideFcn='dividerand';
 
 end
@@ -374,6 +409,13 @@ songs_with_hits = songs_with_hits(randomsongs);
   time_window_steps, ...
   songs_with_hits);
 
+save_params={'win_size','fft_size','fft_time_shift','amp_scaling','freq_range',...
+  'freq_range_ds','trigger_thresholds','time_window_steps','time_window'};
+
+for i=1:length(save_params)
+  net.userdata.(save_params{i})=eval(save_params{i});
+end
+
 figs.performance=figure();
 nndetector_vis_train(times,freqs,spectrogram_avg_img,...
   times_of_interest,tstep_of_interest,freq_range,time_window);
@@ -381,15 +423,27 @@ nndetector_vis_test(ntsteps_of_interest,testout,spectrograms,times,time_window,.
   time_window_steps,trigger_thresholds,ntrainsongs,ntestsongs,timestep,randomsongs,nmatchingsongs);
 colormap(jet);
 
-
-net.userdata.win_size=win_size;
-net.userdata.fft_size=fft_size;
-net.userdata.fft_time_shift=fft_time_shift;
-net.userdata.amp_scaling=scaling;
-net.userdata.freq_range=freq_range;
-net.userdata.freq_range_ds=freq_range_ds;
-net.userdata.threshold=trigger_thresholds;
-net.userdata.time_steps=time_window_steps;
+% net.userdata.win_size=win_size;
+% net.userdata.fft_size=fft_size;
+% net.userdata.fft_time_shift=fft_time_shift;
+% net.userdata.amp_scaling=amp_scaling;
+% net.userdata.freq_range=freq_range;
+% net.userdata.freq_range_ds=freq_range_ds;
+% net.userdata.trigger_thresholds=trigger_thresholds;
+% net.userdata.time_steps=time_window_steps;
+% net.userdata.time_window=time_window;
+%
+% if ~isempty(autoenc)
+%   autoenc.userdata.win_size=win_size;
+%   autoenc.userdata.fft_size=fft_size;
+%   autoenc.userdata.fft_time_shift=fft_time_shift;
+%   autoenc.userdata.amp_scaling=scaling;
+%   autoenc.userdata.freq_range=freq_range;
+%   autoenc.userdata.freq_range_ds=freq_range_ds;
+%   autoenc.userdata.threshold=trigger_thresholds;
+%   autoenc.userdata.time_steps=time_window_steps;
+%   autoenc.userdata.time_window=time_window;
+% end
 
 % Draw the hidden units' weights.  Let the user make these square or not
 % because lazy...
@@ -405,7 +459,7 @@ mkdir(bird);
 save(fullfile(bird,[ filename '.mat' ]), ...
   'net', 'train_record','samplerate', 'win_size', 'fft_time_shift', 'freq_range_ds', ...
   'time_window_steps', 'trigger_thresholds', 'shotgun_sigma', 'fft_size', ...
-  'ntrain','scaling','freq_range','nnsetX','nnsetY');
+  'ntrain','amp_scaling','freq_range','nnsetX','nnsetY','autoenc');
 
 if swift_convert
   convert_to_text(fullfile(bird,[ filename '.txt' ]),fullfile(bird,[ filename '.mat' ]));
