@@ -311,6 +311,7 @@ end
 
 nnset_train = 1:(ntrainsongs * nwindows_per_song);
 nnset_test = ntrainsongs * nwindows_per_song + 1 : size(nnsetX, 2);
+nnsetX=zscore(nnsetX);
 
 % Create the network.  The parameter is the number of units in each hidden
 % layer.  [8] means one hidden layer with 8 units.  [] means a simple
@@ -318,7 +319,6 @@ nnset_test = ntrainsongs * nwindows_per_song + 1 : size(nnsetX, 2);
 
 if ~isa(auto_encoder,'Autoencoder') & ~auto_encoder
 
-  nnsetX=zscore(nnsetX);
   net = feedforwardnet(repmat(ceil([nhidden_units * ntsteps_of_interest]),[1 nhidden_layers])); % TUNE
   net.trainFcn='trainscg';
   net.performFcn='mse';
@@ -326,16 +326,12 @@ if ~isa(auto_encoder,'Autoencoder') & ~auto_encoder
 
   % leave standard until we Swift code is updated
 
-  nnsetX=zscore(nnsetX);
   autoenc=[];
   net.inputs{1}.processFcns={'mapstd'};
 
 else
 
   % try out a baby deepnet using the 2015 toolbox
-
-  nnsetX=zscore(nnsetX);
-
   % consider training auto-encoder outside of function
   % recomputing this seems to be a waste...
 
@@ -394,8 +390,8 @@ testout = reshape(testout, ntsteps_of_interest, nwindows_per_song, nsongs);
 
 disp('Computing optimal output thresholds...');
 
-songs_with_hits = [ones(1, nmatchingsongs) zeros(1, nsongs - nmatchingsongs)]';
-songs_with_hits = songs_with_hits(randomsongs);
+%songs_with_hits = [ones(1, nmatchingsongs) zeros(1, nsongs - nmatchingsongs)]';
+%songs_with_hits = songs_with_hits(randomsongs);
 
 % use weighted cost for threshold selection
 
