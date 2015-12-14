@@ -1,15 +1,18 @@
-function [ stats ] = optimise_network_output_unit_trigger_thresholds(NET,NNSETX,NNSETY,SLOP,THRESHOLDS)
+function [ stats ] = optimise_network_output_unit_trigger_thresholds(NET,NNSETX,NNSETY,WEIGHTS,SLOP,THRESHOLDS)
 % slop to match (.005)?
 
-if nargin<5
+if nargin<6
   THRESHOLDS=[];
 end
 
-if nargin<4
+if nargin<5
   SLOP=[];
 end
 
-weights=[.6 .4];
+if nargin<4
+  WEIGHTS=[.5 .5];
+end
+
 t_per_step=NET.userdata.time_window/NET.userdata.time_window_steps;
 
 if ~isempty(SLOP)
@@ -51,7 +54,7 @@ for i=1:length(THRESHOLDS)
     fn=sum(~prediction&NNSETY);
 
     stats.accuracy(i)=(tp+tn)/total;
-    stats.weighted_cost(i)=weights(1)*fp+weights(2)*fn;
+    stats.weighted_cost(i)=WEIGHTS(1)*fp+WEIGHTS(2)*fn;
     stats.tpr(i)=tp/(tp+fn);
     stats.fpr(i)=fp/(fp+tn);
     stats.tnr(i)=tn/(fp+tn);

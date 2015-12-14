@@ -388,6 +388,14 @@ disp(sprintf('   ...training took %g minutes.', toc/60));
 testout = sim(net, nnsetX);
 testout = reshape(testout, ntsteps_of_interest, nwindows_per_song, nsongs);
 
+save_params={'win_size','fft_size','fft_time_shift','amp_scaling','freq_range',...
+  'freq_range_ds','time_window_steps','time_window','samplerate',...
+  'ntrain','train_record'};
+
+for i=1:length(save_params)
+  net.userdata.(save_params{i})=eval(save_params{i});
+end
+
 disp('Computing optimal output thresholds...');
 
 %songs_with_hits = [ones(1, nmatchingsongs) zeros(1, nsongs - nmatchingsongs)]';
@@ -399,13 +407,7 @@ stats=nndetector_optimal_threshold(net,nnsetX,nnsetY);
 [~,loc]=min(stats.weighted_cost);
 trigger_thresholds=stats.thresholds(loc);
 
-save_params={'win_size','fft_size','fft_time_shift','amp_scaling','freq_range',...
-  'freq_range_ds','trigger_thresholds','time_window_steps','time_window','samplerate',...
-  'ntrain','train_record'};
-
-for i=1:length(save_params)
-  net.userdata.(save_params{i})=eval(save_params{i});
-end
+net.userdata.trigger_thresholds=trigger_thresholds;
 
 % TODO: refactor visualization to pick off parameters from userdata field
 
