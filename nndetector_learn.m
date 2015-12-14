@@ -130,7 +130,10 @@ if gui_enable
     time_window=tmp_t(end)-tmp_t(1);
   end
 
-  %freq_range=round([tmp_f(1) tmp_f(end)]/1e3)*1e3; % round off by 1000 Hz
+  if isempty(freq_range)
+    freq_range=round([tmp_f(1) tmp_f(end)]/1e3)*1e3; % round off by 1000 Hz
+  end
+
   fprintf(1,'Times of interest:\t%g\nTime window:\t%g\nFreq range:\t%g %g\n',...
     times_of_interest,time_window,freq_range(1),freq_range(2));
 
@@ -223,8 +226,6 @@ layer0sz = length(freq_range_ds) * time_window_steps;
 % setting all time windows but the desired one to 0.
 
 nwindows_per_song = ntimes - time_window_steps + 1;
-
-
 trainsongs = randomsongs(1:ntrainsongs);
 testsongs = randomsongs(1:ntestsongs);
 
@@ -258,13 +259,6 @@ for i = 1:ntsteps_of_interest
   [target_offsets(i,:) sample_offsets(i,:)] = nndetector_target_offsets(MIC_DATA(:, 1:nmatchingsongs),...
     tstep_of_interest(i), samplerate, timestep, canonical_songs(i));
 end
-
-% with the target offsets, reshape MIC_DATA to write out to large wav file with hit points marked
-% in right channel, sound in left channel
-
-
-
-%%%
 
 %% Create the training set
 
@@ -417,9 +411,6 @@ nndetector_vis_train(times,freqs,spectrogram_avg_img,...
 nndetector_vis_test(ntsteps_of_interest,testout,spectrograms,times,time_window,...
   time_window_steps,trigger_thresholds,ntrainsongs,ntestsongs,timestep,randomsongs,nmatchingsongs);
 colormap(jet);
-
-% Draw the hidden units' weights.  Let the user make these square or not
-% because lazy...
 
 figs.hiddenlayer=figure();
 nndetector_vis_hiddenlayer(net);
