@@ -82,6 +82,9 @@ for i=1:2:nparams
 	end
 end
 
+% if we pass the the net.userdata field through user_data, overwrite settings
+% (typically used to ensure things like auto-encoders map correctly)
+
 if isstruct(user_data)
   parameters=fieldnames(user_data);
 
@@ -100,12 +103,18 @@ if isstruct(user_data)
   end
 end
 
+% STFT overlap in samples
+
 noverlap = win_size - (fft_time_shift);
+
+% Ignore regions in the aligned data?
 
 if ~isempty(padding) & length(padding)==2
   pad_smps=round(padding*FS);
   MIC_DATA=MIC_DATA(pad_smps(1):end-pad_smps(2),:);
 end
+
+% only use a subset of the training data
 
 if ~isempty(subsample)
   disp(['Selecting ' num2str(subsample) ' trials across the dataset...']);
@@ -119,6 +128,8 @@ if ~isempty(subsample)
 
   MIC_DATA=MIC_DATA(:,sub_pool);
 end
+
+% use a GUI to select time of interest/time window/frequency window?
 
 if gui_enable
 
@@ -143,6 +154,8 @@ rng('shuffle');
 
 [nsamples_per_song, nmatchingsongs] = size(MIC_DATA);
 
+% resample mic data if necessary
+
 if FS ~= samplerate
   disp(sprintf('Resampling data from %g Hz to %g Hz...', FS, samplerate));
   [a b] = rat(samplerate/FS);
@@ -155,7 +168,6 @@ end
 [nsamples_per_song, nmatchingsongs] = size(MIC_DATA);
 
 % stitch together negative examples
-% reshape to tack on to positive examples, bit of a hack but works OK
 
 if ~isempty(neg_examples)
   disp('Incorporating negative examples...')
