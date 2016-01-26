@@ -36,6 +36,7 @@ auto_encoder=1;
 swift_convert=0;
 user_data=[];
 export_wav=0;
+inp_scaling='zscore';
 
 param_names=who('-regexp','^[a-z]');
 
@@ -317,7 +318,15 @@ end
 
 nnset_train = 1:(ntrainsongs * nwindows_per_song);
 nnset_test = ntrainsongs * nwindows_per_song + 1 : size(nnsetX, 2);
-nnsetX=zscore(nnsetX);
+
+% normalization 1, per spectrogram that the network sees
+
+switch(lower(inp_scaling(1)))
+  case 'z'
+    nnsetX=zscore(nnsetX);
+  case 'n'
+    nnsetX=normc(nnsetX);
+end
 
 % Create the network.  The parameter is the number of units in each hidden
 % layer.  [8] means one hidden layer with 8 units.  [] means a simple
@@ -359,23 +368,7 @@ else
 
   features1=encode(autoenc,nnsetX);
 
-  % TODO: store auto-encoder and add ability to load one in
-  % (no point in reproducing this for the same dataset)
-
   % for now 1 autoencoder seems to suffice
-
-  % autoenc2 = trainAutoencoder(features1,10,...
-  %       'EncoderTransferFunction','logsig',...
-  %       'DecoderTransferFunction','purelin',...
-  %       'L2WeightRegularization',0.1,...
-  %       'SparsityRegularization',1,...
-  %       'SparsityProportion',0.05,...
-  %       'ScaleData',false,...
-  %       'MaxEpochs',100);
-  %
-  % features2=encode(autoenc2,features1);
-
-  % check cross entropy and mse
 
   softnet=trainSoftmaxLayer(features1,nnsetY,'LossFunction','crossentropy');
   net=stack(autoenc,softnet);
@@ -387,7 +380,6 @@ end
 tic
 [net, train_record] = train(net, nnsetX(:, nnset_train), nnsetY(:, nnset_train), 'UseParallel', 'no');
 
-% Oh yeah, the line above was the hard part.
 disp(sprintf('   ...training took %g minutes.', toc/60));
 
 % Test on all the data:
@@ -396,7 +388,7 @@ testout = reshape(testout, ntsteps_of_interest, nwindows_per_song, nsongs);
 
 save_params={'win_size','fft_size','fft_time_shift','amp_scaling','freq_range',...
   'freq_range_ds','time_window_steps','time_window','samplerate',...
-  'ntrain','train_record'};
+  'ntrain','train_record','inp_scaling'};
 
 for i=1:length(save_params)
   net.userdata.(save_params{i})=eval(save_params{i});
@@ -433,7 +425,7 @@ fprintf('Saving as ''%s''...\n', filename);
 
 mkdir(bird);
 save(fullfile(bird,[ filename '.mat' ]), ...
-  'net', 'nnsetX','nnsetY','autoenc');
+  'net', 'nnsetX','nnsetY','autoenc','stats');
 
 if export_wav
   sample_of_interest=round(times_of_interest*samplerate);

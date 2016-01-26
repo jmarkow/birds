@@ -22,7 +22,7 @@ for i = 1:NTARGETS
 
         if SHOW_THRESHOLDS
                 img = power_img * 0.8;
-                fooo = trigger(foo', TRIGGER_THRESHOLDS(i), 0.1, TIMESTEP);
+                fooo = nndetector_trigger(foo', TRIGGER_THRESHOLDS(i), 0.1, TIMESTEP);
                 fooo = [barrr' fooo];
                 [val pos] = max(fooo,[],2);
 
